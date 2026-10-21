@@ -1,9 +1,6 @@
 # Supply chain baseline
 
-The standard every matchory repository follows. A required org workflow
-(`supply-chain-policy.yml`) checks it on every pull request, and a daily
-audit (`supply-chain-drift.yml`) reports regressions in one issue labelled
-`supply-chain-drift`.
+The standard every matchory repository follows.
 
 ## Dependency updates
 
@@ -76,26 +73,3 @@ Pin base images by tag and digest (`FROM php:8.5-alpine@sha256:…`). The
   `/.github/ @matchory/workflows-maintainers`.
 - Default-branch rules (PR review, signed commits, no force push or deletion)
   come from org rulesets. Do not weaken them with repository rulesets.
-
-## Exceptions
-
-When a repo has a real reason to deviate, record it in
-`.github/supply-chain-exceptions.yml`. `.github/` is under CODEOWNERS, so
-adding an exception needs the same review as a workflow change:
-
-```yaml
-exceptions:
-  - match: "github-actions: majors grouped via actions-cache"   # substring of the policy message
-    reason: v4 and v6 use different cache backends and must move together (#425)
-```
-
-`reason` is required. An exception that no longer matches anything is
-flagged, so stale ones get removed. Prefer the native escape hatch where one
-exists, e.g. Dependabot `exclude-paths` for scaffolds and fixtures.
-
-## Running the checks locally
-
-```sh
-uv run --script supply-chain/policy_check.py /path/to/repo   # what the PR gate checks
-uv run --script supply-chain/audit.py --only <repo>          # full audit, writes report.md
-```
