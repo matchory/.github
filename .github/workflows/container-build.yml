@@ -1,0 +1,130 @@
+# Reusable container build: matchory/.github/.github/workflows/container-build.yml
+#
+# Buildx with max-mode provenance and an SBOM attached to the image, a signed
+# SLSA build-provenance attestation pushed to the registry, GHA layer cache.
+# Callers deploy by the `digest` output, never by tag.
+#
+#   jobs:
+#     image:
+#       uses: matchory/.github/.github/workflows/container-build.yml@<sha> # v1
+#       permissions:
+#         contents: read
+#         packages: write
+#         id-token: write
+#         attestations: write
+#       with:
+#         image: ghcr.io/matchory/webapp
+#         push: ${{ github.event_name != 'pull_request' }}
+name: Container build
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image name without tag, e.g. ghcr.io/matchory/webapp
+        required: true
+        type: string
+      context:
+        type: string
+        default: .
+      file:
+        description: Dockerfile path, relative to the repository root
+        type: string
+        default: Dockerfile
+      target:
+        type: string
+        default: ""
+      platforms:
+        type: string
+        default: linux/amd64
+      build-args:
+        type: string
+        default: ""
+      tags:
+        description: docker/metadata-action tag rules; the default tags the branch, semver tags and the commit SHA
+        type: string
+        default: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=sha,format=long
+      push:
+        type: boolean
+        default: true
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      build-secrets:
+        description: Newline-separated id=value pairs passed as BuildKit secrets
+        required: false
+    outputs:
+      digest:
+        description: Image digest (sha256:…); deploy with image@digest
+        value: ${{ jobs.build.outputs.digest }}
+      image:
+        value: ${{ inputs.image }}
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - if: inputs.push
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ inputs.image }}
+          tags: ${{ inputs.tags }}
+
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.file }}
+          target: ${{ inputs.target }}
+          platforms: ${{ inputs.platforms }}
+          build-args: ${{ inputs.build-args }}
+          secrets: ${{ secrets.build-secrets }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ inputs.image }}-${{ inputs.target }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image }}-${{ inputs.target }}
+
+      - if: inputs.push
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ inputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summary
+        env:
+          IMAGE: ${{ inputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "Built \`${IMAGE}@${DIGEST}\`" >> "${GITHUB_STEP_SUMMARY}"

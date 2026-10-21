@@ -1,0 +1,6 @@
+# Org zizmor config, passed with --config by the supply chain policy workflow.
+# The baseline cooldown is 3 days; zizmor's default threshold is 7.
+rules:
+  dependabot-cooldown:
+    config:
+      days: 3

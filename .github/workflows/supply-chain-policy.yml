@@ -1,0 +1,42 @@
+# Org-required workflow: matchory/.github/.github/workflows/supply-chain-policy.yml
+# Enforced through an org ruleset ("workflows" rule) on every repo's default
+# branch, so a PR that drifts from the baseline cannot merge. Starts in
+# "evaluate" mode; flipped to "active" once the pilot repos are green.
+name: Supply chain policy
+
+on:
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: target
+
+      - name: Check out the policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: matchory/.github
+          persist-credentials: false
+          sparse-checkout: |
+            supply-chain
+            zizmor.yml
+          path: policy
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+
+      - name: Validate dependabot.yml and workflows
+        run: uv run --script policy/supply-chain/policy_check.py target
+
+      - name: zizmor (high severity only)
+        run: uvx zizmor@1.30.1 --offline --config policy/zizmor.yml --min-severity high --format github target

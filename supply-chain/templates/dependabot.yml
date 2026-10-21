@@ -1,0 +1,105 @@
+# Canonical Dependabot configuration (matchory supply chain baseline).
+#
+# Every ecosystem entry follows the same three rules:
+#   - cooldown: a release must be 3 days old before Dependabot proposes it
+#     (does not delay security updates)
+#   - minor + patch updates arrive as ONE grouped PR per ecosystem
+#   - major updates are never grouped: one PR per dependency, so each breaking
+#     change is reviewed on its own
+# Security updates get their own group per ecosystem; without it every
+# advisory arrives as a separate PR.
+#
+# Copy the blocks for the ecosystems the repo actually has. A
+# github-actions block without .github/workflows/*.yml or a root action.yml
+# fails every run ("/action.yml not found").
+# Use `directories:` with globs when manifests live below the root, e.g.
+# ["/", "/packages/*"]; `directory: /` covers the root only.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: &schedule
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown: &cooldown
+      default-days: 3
+      semver-major-days: 3
+      semver-minor-days: 3
+      semver-patch-days: 3
+    groups: &groups
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    labels: [dependencies, github-actions]
+
+  - package-ecosystem: docker
+    directories: ["/", "/**/docker"]
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, docker]
+
+  - package-ecosystem: composer
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    versioning-strategy: increase-if-necessary
+    labels: [dependencies, php]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    versioning-strategy: increase-if-necessary
+    labels: [dependencies, javascript]
+
+  # uv.lock present -> "uv"; requirements.txt / poetry / pipenv -> "pip"
+  - package-ecosystem: uv
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, python]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, go]
+
+  - package-ecosystem: terraform
+    directories: ["/tofu", "/tofu/**"]
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, terraform]
+
+  - package-ecosystem: helm
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, helm]
+
+  - package-ecosystem: bundler
+    directory: /
+    schedule: *schedule
+    cooldown: *cooldown
+    groups: *groups
+    labels: [dependencies, ruby]

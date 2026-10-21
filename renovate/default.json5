@@ -1,0 +1,60 @@
+// Central Renovate preset: ONLY what Dependabot cannot update.
+// Consumers: { "extends": ["github>matchory/.github//renovate/default.json5"] }
+//
+// Dependabot is the primary updater. Every Renovate manager whose files
+// Dependabot also handles is switched off here, so no dependency ever gets two
+// PRs. What remains: Puppetfile, version pins in Dockerfile ARGs, Makefiles,
+// scripts and workflow env (via `# renovate:` comments), Helm values, asdf/mise.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitsDisabled",
+  ],
+  timezone: "Europe/Berlin",
+  schedule: ["before 6am on monday"],
+  minimumReleaseAge: "3 days",
+  internalChecksFilter: "strict",
+  separateMajorMinor: true,
+  separateMultipleMajor: true,
+  labels: ["dependencies", "renovate"],
+
+  // Allow-list: anything not listed here is Dependabot's job.
+  enabledManagers: [
+    "puppet",
+    "helm-values",
+    "asdf",
+    "mise",
+    "custom.regex",
+  ],
+
+  customManagers: [
+    {
+      // Version pins annotated in place, e.g.
+      //   # renovate: datasource=github-releases depName=tailscale/tailscale
+      //   ARG TAILSCALE_VERSION="1.90.1"
+      // Works in Dockerfiles, Makefiles, shell scripts and workflow env blocks.
+      customType: "regex",
+      description: "Annotated version pins Dependabot cannot see",
+      managerFilePatterns: [
+        "/(^|/)([\\w.-]*Dockerfile|Containerfile)$/",
+        "/(^|/)(Makefile|[^/]+\\.mk)$/",
+        "/\\.(sh|bash|env)$/",
+        "/^\\.github/workflows/[^/]+\\.ya?ml$/",
+      ],
+      matchStrings: [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*(ARG\\s+|ENV\\s+|export\\s+)?[\\w-]+\\s*(:=|\\?=|=|:)\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+      ],
+    },
+  ],
+
+  packageRules: [
+    {
+      description: "Group minor and patch updates per manager; majors stay separate PRs",
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "{{manager}} minor and patch",
+      groupSlug: "{{manager}}-minor-patch",
+    },
+  ],
+}
