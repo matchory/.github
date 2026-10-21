@@ -70,6 +70,6 @@ Pin base images by tag and digest (`FROM php:8.5-alpine@sha256:…`). The
 ## Repository
 
 - `CODEOWNERS` assigns an owner to `/.github/`, for example
-  `/.github/ @matchory/workflows-maintainers`.
+  `/.github/ @matchory/infrastructure`.
 - Default-branch rules (PR review, signed commits, no force push or deletion)
   come from org rulesets. Do not weaken them with repository rulesets.
