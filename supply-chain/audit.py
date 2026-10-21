@@ -136,6 +136,7 @@ ECOSYSTEMS: dict[str, callable] = {
     "npm": lambda p: p.endswith("package.json") and "node_modules/" not in p,
     "bun": lambda p: re.search(r"(^|/)bun\.lockb?$", p),
     "composer": lambda p: p.endswith("composer.json") and "vendor/" not in p,
+    # setup.py only counts when it is a packaging script (see is_setup_script)
     "pip": lambda p: re.search(r"(^|/)(requirements[^/]*\.(txt|in)|setup\.py|Pipfile|pyproject\.toml)$", p),
     "uv": lambda p: re.search(r"(^|/)uv\.lock$", p),
     "gomod": lambda p: p.endswith("go.mod"),
@@ -193,6 +194,25 @@ PUBLISH_ACTIONS = {"pypa/gh-action-pypi-publish", "softprops/action-gh-release",
 OK, BAD, NA = "✅", "❌", "n.a."
 
 
+def is_setup_script(text: str) -> bool:
+    """A setup.py is a pip manifest only if it packages something; a module that happens to be called setup.py is not."""
+    return bool(re.search(r"^\s*(from|import)\s+(setuptools|distutils)", text, re.M))
+
+
+def detect_ecosystems(paths: list[str], read) -> dict[str, set[str]]:
+    """Map each Dependabot ecosystem present to the directories holding its manifests."""
+    present: dict[str, set[str]] = {}
+    for p in paths:
+        for eco, pred in ECOSYSTEMS.items():
+            if not pred(p):
+                continue
+            if eco == "pip" and p.endswith("setup.py") and not is_setup_script(read(p) or ""):
+                continue
+            parent = str(Path(p).parent)
+            present.setdefault(eco, set()).add("/" if parent == "." else f"/{parent}")
+    return present
+
+
 def mark(v):
     return NA if v is None else (OK if v else BAD)
 
@@ -232,6 +252,7 @@ def audit_dependabot(text: str | None, paths: list[str], present: dict[str, set[
     r["valid"] = True
     meg = cfg.get("multi-ecosystem-groups") or {}
     configured: dict[str, list[str]] = {}
+    excluded: dict[str, list[str]] = {}
     cool, grp, maj = [], [], []
     for u in updates:
         eco = (u.get("package-ecosystem") or "").strip()
@@ -241,6 +262,7 @@ def audit_dependabot(text: str | None, paths: list[str], present: dict[str, set[
             continue
         dirs = u.get("directories") or ([u["directory"]] if u.get("directory") else [])
         configured.setdefault(eco, []).extend(dirs)
+        excluded.setdefault(eco, []).extend(u.get("exclude-paths") or [])
         # cooldown: explicit 3 days on every level that is set
         c = u.get("cooldown") or {}
         days = [c.get(k) for k in ("default-days", "semver-major-days", "semver-minor-days", "semver-patch-days") if k in c]
@@ -273,8 +295,15 @@ def audit_dependabot(text: str | None, paths: list[str], present: dict[str, set[
         conf = [d for e in EQUIVALENT.get(eco, {eco}) for d in configured.get(e, [])]
         if not conf or eco == "github-actions":
             continue
+        # a root npm entry updates every pnpm workspace member through the root lockfile
+        if eco == "npm" and "pnpm-workspace.yaml" in paths and "/" in conf:
+            continue
         pats = ["/" + d.strip("/") if d.strip("/") else "/" for d in conf]
-        unc = sorted(d for d in dirs_present if not any(fnmatch.fnmatch(d, p) or p == "/**" for p in pats))
+        excl = [x.strip("/") for e in EQUIVALENT.get(eco, {eco}) for x in excluded.get(e, [])]
+        unc = sorted(d for d in dirs_present
+                     if not any(fnmatch.fnmatch(d, p) or p == "/**" for p in pats)
+                     and not any(fnmatch.fnmatch(d.strip("/"), x) or fnmatch.fnmatch(d.strip("/") + "/", x)
+                                 or d.strip("/").startswith(x.rstrip("*").rstrip("/") + "/") for x in excl))
         if unc:
             r["uncovered_dirs"][eco] = unc
     return r
@@ -473,12 +502,7 @@ def audit_repo(gh: GH, org: str, meta: dict) -> dict:
     r["tree_truncated"] = tree.get("truncated", False)
     pset = set(paths)
 
-    present: dict[str, set[str]] = {}
-    for p in paths:
-        for eco, pred in ECOSYSTEMS.items():
-            if pred(p):
-                parent = str(Path(p).parent)
-                present.setdefault(eco, set()).add("/" if parent == "." else f"/{parent}")
+    present = detect_ecosystems(paths, lambda f: gh.file(repo, f, ref))
     r["ecosystems_present"] = sorted(present)
     r["dependabot_gaps_present"] = sorted(g for g, pred in DEPENDABOT_GAPS.items() if any(pred(p) for p in paths))
 

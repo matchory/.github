@@ -8,25 +8,32 @@
 Runs in the org-required workflow on every pull request and exits non-zero on
 a violation. Uses the same rules as audit.py, so the drift report and the PR
 gate cannot disagree. Usage: ./policy_check.py [REPO_DIR]
+
+A repo can accept a specific violation in .github/supply-chain-exceptions.yml
+(owned through CODEOWNERS like the rest of .github/):
+
+    exceptions:
+      - match: "github-actions: majors grouped via actions-cache"
+        reason: v4 and v6 use different cache backends and must move together
+
+`match` is a substring of the violation message, and `reason` is required.
+An exception that matches nothing is reported, so stale ones get removed.
 """
 from __future__ import annotations
 
 import sys
+
+import yaml
 from pathlib import Path
 
-from audit import ECOSYSTEMS, audit_dependabot, audit_workflows, codeowners_cover_github, is_sha, minimal_perms
+from audit import audit_dependabot, audit_workflows, codeowners_cover_github, detect_ecosystems, is_sha, minimal_perms
 
 
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
     paths = [str(p.relative_to(root)) for p in root.rglob("*")
              if p.is_file() and not any(x in p.parts for x in (".git", "node_modules", "vendor"))]
-    present: dict[str, set[str]] = {}
-    for p in paths:
-        for eco, pred in ECOSYSTEMS.items():
-            if pred(p):
-                parent = str(Path(p).parent)
-                present.setdefault(eco, set()).add("/" if parent == "." else f"/{parent}")
+    present = detect_ecosystems(paths, lambda f: (root / f).read_text(errors="replace"))
 
     errors: list[str] = []
     cfg = next((root / f for f in (".github/dependabot.yml", ".github/dependabot.yaml") if (root / f).exists()), None)
@@ -58,9 +65,26 @@ def main() -> int:
     if not codeowners_cover_github(co.read_text() if co else None):
         errors.append("CODEOWNERS must assign an owner to .github/ (e.g. `/.github/ @matchory/workflows-maintainers`)")
 
+    exc_file = root / ".github/supply-chain-exceptions.yml"
+    exceptions = (yaml.safe_load(exc_file.read_text()) or {}).get("exceptions") or [] if exc_file.exists() else []
+    accepted = []
+    for x in exceptions:
+        if not (isinstance(x, dict) and x.get("match") and str(x.get("reason") or "").strip()):
+            errors.append(f"supply-chain-exceptions.yml: every exception needs `match` and `reason`: {x!r}")
+            continue
+        hits = [e for e in errors if x["match"] in e]
+        if not hits:
+            print(f"::warning::supply-chain-exceptions.yml: `{x['match']}` matches no violation; remove it")
+        for e in hits:
+            errors.remove(e)
+            accepted.append(f"{e} (accepted: {x['reason'].strip()})")
+
+    for e in accepted:
+        print(f"::notice::{e}")
     for e in errors:
         print(f"::error::{e}")
-    print(f"{len(errors)} violation(s)" if errors else "supply chain baseline: OK")
+    print(f"{len(errors)} violation(s)" if errors else "supply chain baseline: OK"
+          + (f" ({len(accepted)} accepted exception(s))" if accepted else ""))
     return 1 if errors else 0
 
 
