@@ -8,7 +8,7 @@ The standard every matchory repository follows.
 `.github/dependabot.yml`. The building blocks are in
 [`templates/dependabot.yml`](templates/dependabot.yml). Each entry has:
 
-- `cooldown` with `default-days: 3` (and 3 for the semver levels). A release
+- `cooldown` with `default-days: 3`, which covers every semver level. A release
   must be 3 days old before it is proposed. Security updates are not delayed.
 - a `minor-and-patch` group (`update-types: [minor, patch]`): one PR per
   ecosystem.
