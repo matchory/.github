@@ -2,7 +2,9 @@
 #
 # Every ecosystem entry follows the same three rules:
 #   - cooldown: a release must be 3 days old before Dependabot proposes it
-#     (does not delay security updates)
+#     (does not delay security updates). Only `default-days`: docker,
+#     docker-compose, github-actions and pre-commit reject the semver-*-days
+#     keys, and `default-days` already covers every semver level
 #   - minor + patch updates arrive as ONE grouped PR per ecosystem
 #   - major updates are never grouped: one PR per dependency, so each breaking
 #     change is reviewed on its own
@@ -26,9 +28,6 @@ updates:
       timezone: Europe/Berlin
     cooldown: &cooldown
       default-days: 3
-      semver-major-days: 3
-      semver-minor-days: 3
-      semver-patch-days: 3
     groups: &groups
       minor-and-patch:
         applies-to: version-updates
