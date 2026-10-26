@@ -1,0 +1,207 @@
+# Reusable signed bot pull request: matchory/.github/.github/workflows/signed-pull-request.yml
+#
+# Turns a payload from the prepare-signed-commit action into a signed commit
+# and opens (or updates) a pull request with it. `GITHUB_TOKEN` cannot do
+# either: the org policy "Allow GitHub Actions to create and approve pull
+# requests" is off, and its pushes are unsigned, which the signed-commits
+# ruleset rejects. So this mints a token from the org's gh-actions-token-provider
+# app, which needs contents: write and pull-requests: write.
+#
+# The payload is built in the caller's own job, which may run untrusted code
+# such as dependency install scripts. This workflow never checks out or runs
+# repository code, and refuses any path outside `allowed-paths` before it
+# mints the token, so that job can only ever propose changes to those paths.
+#
+#   jobs:
+#     build:
+#       runs-on: ubuntu-latest
+#       permissions:
+#         contents: read
+#       outputs:
+#         changed: ${{ steps.payload.outputs.changed }}
+#       steps:
+#         - uses: actions/checkout@<sha> # v7.0.1
+#           with:
+#             persist-credentials: false
+#         - run: npm ci && npm run build
+#         - uses: matchory/.github/actions/prepare-signed-commit@<sha> # main
+#           id: payload
+#           with:
+#             paths: dist
+#
+#     publish:
+#       needs: build
+#       if: needs.build.outputs.changed == 'true'
+#       uses: matchory/.github/.github/workflows/signed-pull-request.yml@<sha> # main
+#       permissions: {}
+#       with:
+#         app-id: ${{ vars.GH_AUTH_APP_ID }}
+#         branch: chore/rebuild-dist
+#         title: "chore: rebuild dist"
+#         allowed-paths: dist
+#       secrets:
+#         app-private-key: ${{ secrets.GH_AUTH_APP_PRIVATE_KEY }}
+#
+# The commit is built on top of the commit the calling run is for
+# (`github.sha`). Callers that can run concurrently should queue with a
+# `concurrency` group, since they share the head branch.
+name: Signed pull request
+
+on:
+  workflow_call:
+    inputs:
+      app-id:
+        description: GitHub App ID (or client ID); usually vars.GH_AUTH_APP_ID
+        required: true
+        type: string
+      branch:
+        description: Head branch for the pull request; force-moved onto the new commit
+        required: true
+        type: string
+      title:
+        required: true
+        type: string
+      body:
+        type: string
+        default: ""
+      commit-message:
+        description: Commit headline; defaults to the title
+        type: string
+        default: ""
+      allowed-paths:
+        description: Newline-separated directories the payload may touch
+        required: true
+        type: string
+      base:
+        description: Base branch; defaults to the repository's default branch
+        type: string
+        default: ""
+      artifact-name:
+        type: string
+        default: signed-commit-payload
+      runs-on:
+        type: string
+        default: ubuntu-latest
+    secrets:
+      app-private-key:
+        description: Private key of the app; usually secrets.GH_AUTH_APP_PRIVATE_KEY
+        required: true
+    outputs:
+      pull-request-url:
+        value: ${{ jobs.publish.outputs.url }}
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    permissions: {}
+    outputs:
+      url: ${{ steps.pull-request.outputs.url }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ runner.temp }}/signed-commit-payload
+
+      - name: Check payload paths
+        env:
+          ALLOWED_PATHS: ${{ inputs.allowed-paths }}
+          PAYLOAD: ${{ runner.temp }}/signed-commit-payload
+        run: |
+          outside=$(jq --raw-output --slurp --arg allowed "$ALLOWED_PATHS" '
+            ($allowed | split("\n") | map(gsub("^\\s+|/*\\s*$"; ""))
+              | map(select(. != "")) | map(. + "/")) as $prefixes
+            | add | map(.path)
+            | map(select(
+                (. as $path | $prefixes | any(. as $prefix | $path | startswith($prefix)) | not)
+                or test("(^|/)\\.\\.(/|$)")
+              ))
+            | .[]' "$PAYLOAD/additions.json" "$PAYLOAD/deletions.json")
+
+          if [ -n "$outside" ]; then
+            echo "::error::Payload touches paths outside allowed-paths:"
+            echo "$outside"
+            exit 1
+          fi
+
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - id: pull-request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PAYLOAD: ${{ runner.temp }}/signed-commit-payload
+          HEAD: ${{ github.sha }}
+          BRANCH: ${{ inputs.branch }}
+          BASE: ${{ inputs.base || github.event.repository.default_branch }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          MESSAGE: ${{ inputs.commit-message || inputs.title }}
+        run: |
+          # GitHub only signs commits an app creates through the API, not ones
+          # it pushes, so the commit is built with `createCommitOnBranch`.
+          # That mutation only appends to an existing branch, so build the
+          # commit on a throwaway branch cut from HEAD, then move the real
+          # branch onto it in one update. Resetting the real branch first
+          # would briefly leave an open pull request with no changes, which
+          # GitHub closes.
+          repo="repos/$GITHUB_REPOSITORY/git"
+          staging="$BRANCH-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+          gh api "$repo/refs" \
+            -f ref="refs/heads/$staging" -f sha="$HEAD" >/dev/null
+          trap 'gh api --method DELETE "$repo/refs/heads/$staging" >/dev/null ||
+            echo "::warning::Could not delete branch $staging"' EXIT
+
+          jq --null-input \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$staging" \
+            --arg head "$HEAD" \
+            --arg message "$MESSAGE" \
+            --slurpfile additions "$PAYLOAD/additions.json" \
+            --slurpfile deletions "$PAYLOAD/deletions.json" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: {input: {
+                branch: {repositoryNameWithOwner: $repository, branchName: $branch},
+                expectedHeadOid: $head,
+                message: {headline: $message},
+                fileChanges: {additions: $additions[0], deletions: $deletions[0]}
+              }}
+            }' >"$RUNNER_TEMP/commit.json"
+          commit=$(gh api graphql --input "$RUNNER_TEMP/commit.json" \
+            --jq '.data.createCommitOnBranch.commit.oid')
+
+          # `git/ref/` (singular) matches exactly; `git/refs/` would also
+          # answer 200 for other branches that merely share this prefix.
+          if gh api "$repo/ref/heads/$BRANCH" >/dev/null 2>&1; then
+            gh api --method PATCH "$repo/refs/heads/$BRANCH" \
+              -f sha="$commit" -F force=true >/dev/null
+          else
+            gh api "$repo/refs" \
+              -f ref="refs/heads/$BRANCH" -f sha="$commit" >/dev/null
+          fi
+
+          url=$(gh pr list --head "$BRANCH" --base "$BASE" --state open \
+            --json url --jq '.[0].url // empty')
+
+          if [ -n "$url" ]; then
+            echo "Updated existing pull request $url."
+          else
+            url=$(gh pr create --head "$BRANCH" --base "$BASE" \
+              --title "$TITLE" --body "$BODY")
+          fi
+
+          echo "url=$url" >>"$GITHUB_OUTPUT"

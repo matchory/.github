@@ -1,0 +1,76 @@
+# Build half of a signed bot commit: matchory/.github/actions/prepare-signed-commit
+#
+# Stages the given paths and uploads them as a commit payload for the reusable
+# signed-pull-request workflow, which turns it into a signed commit and a pull
+# request. Run it at the end of the job that generated the files; that job
+# needs no secrets, so it can safely run `npm ci` or similar.
+#
+#   - uses: matchory/.github/actions/prepare-signed-commit@<sha> # main
+#     id: payload
+#     with:
+#       paths: |
+#         dist
+#         .licenses
+#
+# Then call the workflow when `steps.payload.outputs.changed == 'true'`.
+name: Prepare signed commit
+description: Stage changed paths as a commit payload for the signed-pull-request workflow
+
+inputs:
+  paths:
+    description: Newline-separated paths to stage, relative to the repository root
+    required: true
+  artifact-name:
+    description: Name of the payload artifact; pass the same name to the workflow
+    default: signed-commit-payload
+
+outputs:
+  changed:
+    description: Whether any of the paths changed; nothing is uploaded otherwise
+    value: ${{ steps.payload.outputs.changed }}
+
+runs:
+  using: composite
+  steps:
+    # `createCommitOnBranch` takes the file contents inline, base64-encoded.
+    # NUL-separated so git does not quote unusual paths, which would make
+    # `base64` fail inside the process substitution unnoticed and commit the
+    # file empty.
+    - id: payload
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        PAYLOAD: ${{ runner.temp }}/signed-commit-payload
+      run: |
+        set -o pipefail
+        paths=()
+        while IFS= read -r path; do
+          [ -n "${path//[[:space:]]/}" ] && paths+=("$path")
+        done <<<"$PATHS"
+        mkdir -p "$PAYLOAD"
+        git add --all -- "${paths[@]}"
+
+        if git diff --cached --quiet -- "${paths[@]}"; then
+          echo "changed=false" >>"$GITHUB_OUTPUT"
+          echo "No changes in: ${paths[*]}"
+          exit 0
+        fi
+
+        git diff --cached --name-only -z --no-renames --diff-filter=d -- "${paths[@]}" |
+          while IFS= read -r -d '' path; do
+            jq --null-input --arg path "$path" \
+              --rawfile contents <(base64 --wrap=0 "$path") \
+              '{path: $path, contents: $contents}'
+          done | jq --slurp . >"$PAYLOAD/additions.json"
+        git diff --cached --name-only -z --no-renames --diff-filter=D -- "${paths[@]}" |
+          jq --raw-input --slurp 'split("\u0000") | map(select(. != "") | {path: .})' \
+          >"$PAYLOAD/deletions.json"
+
+        echo "changed=true" >>"$GITHUB_OUTPUT"
+
+    - if: steps.payload.outputs.changed == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ runner.temp }}/signed-commit-payload
+        retention-days: 1
