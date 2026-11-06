@@ -12,6 +12,11 @@ The standard every matchory repository follows.
   must be 3 days old before it is proposed. Security updates are not delayed.
 - a `minor-and-patch` group (`update-types: [minor, patch]`): one PR per
   ecosystem.
+- for npm, composer, pip and bundler, that group is split by
+  `dependency-type` into `production` and `development` (both minor and patch
+  only), so a runtime bump is reviewed apart from a tooling bump. These are
+  the ecosystems where Dependabot supports `dependency-type`; uv, gomod,
+  docker and github-actions keep the single group.
 - majors never grouped: one PR per dependency, reviewed on its own.
 - a `security` group (`applies-to: security-updates`). Without it, every
   advisory is its own PR.

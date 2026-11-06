@@ -3,7 +3,10 @@
 # Every ecosystem entry follows the same three rules:
 #   - cooldown: a release must be 3 days old before Dependabot proposes it
 #     (does not delay security updates)
-#   - minor + patch updates arrive as ONE grouped PR per ecosystem
+#   - minor + patch updates arrive as ONE grouped PR per ecosystem; npm,
+#     composer, pip and bundler split that into production and development
+#     PRs (the ecosystems where Dependabot supports `dependency-type`), so a
+#     runtime bump is reviewed apart from a tooling bump
 #   - major updates are never grouped: one PR per dependency, so each breaking
 #     change is reviewed on its own
 # Security updates get their own group per ecosystem; without it every
@@ -56,7 +59,20 @@ updates:
     directory: /
     schedule: *schedule
     cooldown: *cooldown
-    groups: *groups
+    # Production and development dependencies in separate groups. Only for
+    # ecosystems that support `dependency-type`: composer, npm, pip, bundler.
+    groups: &split-groups
+      production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     versioning-strategy: increase-if-necessary
     labels: [dependencies, php]
 
@@ -64,11 +80,13 @@ updates:
     directory: /
     schedule: *schedule
     cooldown: *cooldown
-    groups: *groups
+    groups: *split-groups
     versioning-strategy: increase-if-necessary
     labels: [dependencies, javascript]
 
-  # uv.lock present -> "uv"; requirements.txt / poetry / pipenv -> "pip"
+  # uv.lock present -> "uv"; requirements.txt / poetry / pipenv -> "pip".
+  # pip supports `dependency-type`, so a pip entry uses *split-groups; uv does
+  # not, so it keeps the single minor-and-patch group.
   - package-ecosystem: uv
     directory: /
     schedule: *schedule
@@ -101,5 +119,5 @@ updates:
     directory: /
     schedule: *schedule
     cooldown: *cooldown
-    groups: *groups
+    groups: *split-groups
     labels: [dependencies, ruby]
