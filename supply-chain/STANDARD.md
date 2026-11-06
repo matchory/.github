@@ -8,8 +8,10 @@ The standard every matchory repository follows.
 `.github/dependabot.yml`. The building blocks are in
 [`templates/dependabot.yml`](templates/dependabot.yml). Each entry has:
 
-- `cooldown` with `default-days: 3` (and 3 for the semver levels). A release
-  must be 3 days old before it is proposed. Security updates are not delayed.
+- `cooldown` with `default-days: 3`. A release must be 3 days old before it
+  is proposed. Security updates are not delayed. No `semver-*-days`:
+  Dependabot rejects them for github-actions, docker and docker-compose, and
+  at the same 3 days they add nothing.
 - a `minor-and-patch` group (`update-types: [minor, patch]`): one PR per
   ecosystem.
 - for npm, composer, pip and bundler, that group is split by
@@ -20,6 +22,8 @@ The standard every matchory repository follows.
 - majors never grouped: one PR per dependency, reviewed on its own.
 - a `security` group (`applies-to: security-updates`). Without it, every
   advisory is its own PR.
+- no YAML anchors or aliases (`&schedule`, `*groups`). Dependabot rejects the
+  whole file if it contains one, and then updates nothing.
 - `directory`/`directories` covering every manifest. `directory: /` is the
   root only; use `directories` with globs for subprojects.
 

@@ -12,9 +12,12 @@
 # Security updates get their own group per ecosystem; without it every
 # advisory arrives as a separate PR.
 #
-# Copy the blocks for the ecosystems the repo actually has. A
-# github-actions block without .github/workflows/*.yml or a root action.yml
-# fails every run ("/action.yml not found").
+# No YAML anchors or aliases: Dependabot rejects the whole file if it has one,
+# so every block is spelled out.
+#
+# Copy the blocks for the ecosystems the repo actually has. A github-actions
+# block without .github/workflows/*.yml or a root action.yml fails every run
+# ("/action.yml not found").
 # Use `directories:` with globs when manifests live below the root, e.g.
 # ["/", "/packages/*"]; `directory: /` covers the root only.
 version: 2
@@ -22,17 +25,14 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule: &schedule
+    schedule:
       interval: weekly
       day: monday
       time: "05:00"
       timezone: Europe/Berlin
-    cooldown: &cooldown
+    cooldown:
       default-days: 3
-      semver-major-days: 3
-      semver-minor-days: 3
-      semver-patch-days: 3
-    groups: &groups
+    groups:
       minor-and-patch:
         applies-to: version-updates
         update-types: [minor, patch]
@@ -43,25 +43,52 @@ updates:
 
   - package-ecosystem: docker
     directories: ["/", "/**/docker"]
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, docker]
 
   - package-ecosystem: docker-compose
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, docker]
 
   - package-ecosystem: composer
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
     # Production and development dependencies in separate groups. Only for
     # ecosystems that support `dependency-type`: composer, npm, pip, bundler.
-    groups: &split-groups
+    groups:
       production:
         applies-to: version-updates
         dependency-type: production
@@ -78,9 +105,25 @@ updates:
 
   - package-ecosystem: npm
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *split-groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     versioning-strategy: increase-if-necessary
     labels: [dependencies, javascript]
 
@@ -89,35 +132,95 @@ updates:
   # not, so it keeps the single minor-and-patch group.
   - package-ecosystem: uv
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, python]
 
   - package-ecosystem: gomod
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, go]
 
   - package-ecosystem: terraform
     directories: ["/tofu", "/tofu/**"]
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, terraform]
 
   - package-ecosystem: helm
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, helm]
 
   - package-ecosystem: bundler
     directory: /
-    schedule: *schedule
-    cooldown: *cooldown
-    groups: *split-groups
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    cooldown:
+      default-days: 3
+    groups:
+      production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     labels: [dependencies, ruby]
